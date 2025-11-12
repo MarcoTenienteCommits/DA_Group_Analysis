@@ -1,0 +1,206 @@
+---
+title: "Vis Project Analysis"
+author: "Marco Teniente"
+date: "2025-11-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This dataset provides a comprehensive look at global income inequality from the year 2000 to 2023. It includes key indicators such as Gini index, average income, income distribution across different population percentiles, and income group classifications for 30 countries worldwide. The dataset offers insights into how income is distributed within nations and highlights disparities across different economic groups.
+
+
+## Research Questions
+
+Do Northern Regions demonstrate higher inequality for southern regions?
+
+Which countries contain the most income disparities globally? Least? 
+
+How has the overall average income shifted throughout the years? Are there common trends for specific years?
+
+## Data Features
+
+Country: The name of the country.
+
+Year: The year of the data point (2000–2023).
+
+Population: The estimated population for the given year.
+Gini Index: A measure of income inequality, where 0 represents perfect equality and 1 represents maximum inequality.
+
+Average Income (USD): The average income in USD for the country in the given year.
+
+Top 10% Income Share (%): The percentage of total income held by the top 10% of the population.
+
+Bottom 10% Income Share (%): The percentage of total income held by the bottom 10% of the population.
+
+Income Group: Categorization of the country’s income group (Low Income, Lower Middle Income, Upper Middle Income, High Income).
+
+## Loading packages
+```{r}
+pacman::p_load(tidyverse, ggplot2, highcharter, plotly, patchwork, readxl)
+```
+
+## Data Cleaning 
+```{r}
+## Reading Dataset
+global_income = read.csv("global_income_inequality.csv")
+
+## Renaming variables for ease of use
+global_income = global_income |>
+  rename(average_income_USD = Average.Income..USD.,
+         top10_income_share = Top.10..Income.Share....,
+         bottom10_income_share = Bottom.10..Income.Share....,
+         gini_index = Gini.Index,
+         income_group = Income.Group,
+         country = Country,
+         year = Year,
+         population = Population) |>
+
+## grouping for time-series
+  group_by(country, year) |>
+  ungroup()
+
+## Reading dataset with corresponding regions
+Country_data = read_excel("Country_data.xlsx")
+
+## Region categorization:
+## EMEA (Europe, the Middle East and Africa)
+## NA (North America)
+## LATAM (Latin America)
+## APAC (Asia-Pacific)
+
+## Renaming and recoding variables for ease of joining.
+Country_data = Country_data |>
+  rename(country = Country,
+         region = Region) |>
+  mutate(country = recode(country,
+                               "United Kingdom of Great Britain and Northern Ireland" = "United Kingdom",
+                               "Russian Federation" = "Russia",
+                          "United States of America" = "United States"))
+
+## Joining both datasets into global_income.
+global_income = global_income |>
+  inner_join(Country_data, by = "country")
+```
+
+## Data Exploration
+```{r}
+colnames(global_income)
+
+summary(global_income)
+```
+## Comparing overall Gini Index overtime (2015 - 2023) & (2005 - 2014)
+```{r}
+c1 = global_income |>
+  filter(year > 2019) |>
+  group_by(year) |>
+  ggplot(aes(x = as.factor(year), y = gini_index)) +
+  geom_boxplot() +
+  coord_flip()
+
+c2 = global_income |>
+  filter(year <= 2019, year >= 2015) |>
+  group_by(year) |>
+  ggplot(aes(x = as.factor(year), y = gini_index)) +
+  geom_boxplot() +
+  coord_flip()
+
+c1 / c2
+
+c3 = global_income |>
+  filter(year <= 2014, year >= 2010) |>
+  group_by(year) |>
+  ggplot(aes(x = as.factor(year), y = gini_index)) +
+  geom_boxplot() +
+  coord_flip()
+
+c4 = global_income |>
+  filter(year <= 2009, year >= 2005) |>
+  group_by(year) |>
+  ggplot(aes(x = as.factor(year), y = gini_index)) +
+  geom_boxplot() +
+  coord_flip()
+
+c3 / c4
+```
+
+## Comparing the Gini Index Between High and Low Income Areas (Time Series)
+```{r}
+global_income |>
+  group_by(year, income_group) |> 
+  summarize(mean_income = mean(average_income_USD), 
+            mean_gini = mean(gini_index), .groups = "drop") |>
+  filter(income_group %in% c("High Income", "Low Income")) |>
+  hchart(type = "line", hcaes(x = year, y = mean_gini, group = income_group))
+
+```
+## Time Series of Avg income overtime with countries of most and least income disparities.
+```{r}
+## Pulling the top 3 and bottom 3 countries with the highest and lowest gini index. 
+top3_unequal = global_income |>
+  filter(year %in% 2023) |>
+  arrange(desc(gini_index)) |>
+  head(n = 3) |>
+  pull(country)
+
+bottom3_unequal = global_income |>
+  filter(year %in% 2023) |>
+  arrange(gini_index) |>
+  head(n = 3) |>
+  pull(country)
+
+## Plotting Time Series of Avg income overtime with countries of most income disparities.
+global_income |>
+  filter(country %in% top3_unequal) |>
+  hchart(type = "line", hcaes(x = year, y = average_income_USD, group = country)) |>
+  hc_title(text = "Average income over time by country (Most disparities)")
+
+
+## Plotting Time Series of Avg income overtime with countries of least income disparities.
+global_income |>
+  filter(country %in% bottom3_unequal) |>
+  hchart(type = "line", hcaes(x = year, y = average_income_USD, group = country)) |>
+  hc_title(text = "Average income over time by country (Least disparities)")
+```
+
+## Comparing Total Avg Income with Mean Gini Index for 2023 
+## (Grouped by Regions)
+```{r}
+global_income |>
+  filter(year %in% 2023) |>
+  group_by(region) |>
+  summarize(avg_gini = mean(gini_index), 
+            avg_income = mean(average_income_USD),
+            population = sum(population)) |> 
+  hchart(
+    "bubble",
+    hcaes(
+      x = avg_income,
+      y = avg_gini,
+      group = region,
+      size = population,
+      name = region
+    )
+  ) |>
+  hc_title(text = "Global Income vs Inequality in 2023") |>
+  hc_xAxis(title = list(text = "Total Average Income (USD)")) |>
+  hc_yAxis(title = list(text = "Average Gini Index"))
+```
+
+## Gini Index in the U.S. overtime (Column Graph)
+```{r}
+global_income |>
+  filter(country %in% "United States") |>
+  
+  ## Establishing threshold of 0.3 for a notably low gini_index.
+  mutate(g_color = ifelse(gini_index < 0.3, "#34A853","#EA4335")) |>
+  
+hchart(type = "column", hcaes(x = year, 
+                              y = gini_index, 
+                              color = g_color))
+```
+

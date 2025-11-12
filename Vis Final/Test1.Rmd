@@ -1,0 +1,167 @@
+---
+title: "Global Income Inequality"
+author: "Marco Teniente"
+date: "2025-11-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#loading packages
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(highcharter)
+library(plotly)
+library(patchwork)
+library(readxl)
+```
+
+# data
+```{r}
+
+global_income = read.csv("global_income_inequality.csv")
+
+global_income = global_income |>
+  rename(average_income_USD = Average.Income..USD.,
+         top10_income_share = Top.10..Income.Share....,
+         bottom10_income_share = Bottom.10..Income.Share....,
+         gini_index = Gini.Index,
+         income_group = Income.Group,
+         country = Country,
+         year = Year,
+         population = Population) |>
+  group_by(country, year) |>
+  ungroup()
+
+Country_data = read_excel("Country_data.xlsx")
+
+Country_data = Country_data |>
+  rename(country = Country,
+         region = Region) |>
+  mutate(country = recode(country,
+                               "United Kingdom of Great Britain and Northern Ireland" = "United Kingdom",
+                               "Russian Federation" = "Russia",
+                          "United States of America" = "United States"))
+
+global_income = global_income |>
+  inner_join(Country_data, by = "country")
+
+#sum missing
+
+sum_miss = function(col){
+  sum(is.na(col))
+}
+
+lapply(global_income, sum_miss)
+
+
+p1 = global_income |>
+  ggplot(aes(x = gini_index, y = average_income_USD, color = region, frame = year)) +
+           geom_point(aes(size = population))
+
+ggplotly(p1)
+  
+  
+p2 = global_income |>
+  ggplot(aes(x = gini_index, y = top10_income_share, color = region, frame = year)) +
+           geom_point(aes(size = population))
+
+ggplotly(p2)
+
+p3 = global_income |>
+  ggplot(aes(x = gini_index, y = bottom10_income_share, color = region, frame = year)) +
+           geom_point(aes(size = population))
+
+ggplotly(p3)
+
+top3_unequal = global_income |>
+  filter(year %in% 2023) |>
+  arrange(desc(gini_index)) |>
+  head(n = 3) |>
+  pull(country)
+
+bottom3_unequal = global_income |>
+  filter(year %in% 2023) |>
+  arrange(gini_index) |>
+  head(n = 3) |>
+  pull(country)
+
+global_income |>
+  filter(country %in% top3_unequal) |>
+  hchart(type = "line", hcaes(x = year, y = gini_index, group = country)) |>
+  hc_title(text = "Average income over time by country (Most disparities)")
+
+
+global_income |>
+  filter(country %in% bottom3_unequal) |>
+  hchart(type = "line", hcaes(x = year, y = gini_index, group = country)) |>
+  hc_title(text = "Average income over time by country (Least disparities)")
+
+## Potential visuals
+
+c1 = global_income |>
+  filter(year > 2019) |>
+  group_by(year) |>
+  ggplot(aes(x = as.factor(year), y = gini_index)) +
+  geom_boxplot() +
+  coord_flip()
+
+c2 = global_income |>
+  filter(year <= 2019, year >= 2015) |>
+  group_by(year) |>
+  ggplot(aes(x = as.factor(year), y = gini_index)) +
+  geom_boxplot() +
+  coord_flip()
+
+c1 / c2
+
+global_income |>
+  group_by(year) |>
+  summarize(mean_gini = mean(gini_index), median_gini = median(gini_index)) |>
+  pivot_longer(cols = c(mean_gini, median_gini),
+    names_to = "type",
+               values_to = "value") |>
+    hchart(type = "line", hcaes(x = year, y = value, group = type))
+
+global_income |>
+  group_by(year) |>
+  summarize(mean_income = mean(average_income_USD), median_income = median(average_income_USD)) |>
+  pivot_longer(cols = c(mean_income, median_income),
+    names_to = "type",
+               values_to = "value") |>
+    hchart(type = "line", hcaes(x = year, y = value, group = type))
+
+global_income |>
+  group_by(year, income_group) |>
+  summarize(mean_income = mean(average_income_USD), 
+            mean_gini = mean(gini_index)) |>
+  filter(income_group %in% c("High Income", "Low Income")) |>
+  hchart(type = "line", hcaes(x = year, y = mean_gini, group = income_group))
+
+global_income |>
+  filter(country %in% "United States") |>
+  mutate(g_color = ifelse(gini_index < 0.3, "#34A853","#EA4335")) |>
+hchart(type = "column", hcaes(x = year, 
+                              y = gini_index, 
+                              color = g_color)) 
+
+global_income |>
+  group_by(year, region) |>
+  summarize(mean_income = mean(average_income_USD), 
+            mean_gini = mean(gini_index), .groups = "drop") |>
+  filter(region %in% c("NA", "LATAM")) |>
+  hchart(type = "line", hcaes(x = year, y = mean_income, group = region))
+
+global_income |>
+  group_by(year, region) |>
+  summarize(mean_income = mean(average_income_USD), 
+            mean_gini = mean(gini_index), .groups = "drop") |>
+  filter(region %in% c("EMEA", "APAC")) |>
+  hchart(type = "line", hcaes(x = year, y = mean_income, group = region))
+
+```
+
